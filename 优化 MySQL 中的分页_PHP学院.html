@@ -1,0 +1,497 @@
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title> 优化 MySQL 中的分页_PHP学院 </title>
+    <meta name="keywords" content="  @PHP学院,php7,PHP教程,微信视频,PHP7教程,PHP7视频,PHP培训,php要学哪些,thinkphp,laravel    "/>
+    <meta name="description" content="php7,PHP教程,微信视频,PHP7教程,PHP7视频,PHP培训,php要学哪些,thinkphp,laravel@show"/>
+    <meta http-equiv="content-type" content="text/html; charset=utf-8"/>
+    <meta name="author" content="PHP学院" />
+    <meta name="Copyright" content="PHP学院版权所有"  />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+
+    <link rel="stylesheet" href="https://www.phpxy.com/front/stylesheets/bootstrap.min.css"/>
+    <link rel="stylesheet" href="https://www.phpxy.com/front/stylesheets/application.min.css"/>
+    <link rel="stylesheet" href="https://www.phpxy.com/front/stylesheets/custom.css"/>
+
+    </head>
+
+<body>
+<div class="container clearfix">
+    <a href="" class="logo pull-left">PHP学院</a>
+
+    <div class="pull-right padding-verticle-20">
+        <!--
+        <img src="https://www.phpxy.com/front/images/advert.png" class="pull-left advert"/>
+        -->
+        <div class="pull-right concat">
+            <a href="">努力学习</a>
+            <a href="" class="text-danger">跳槽、就业不恐慌！</a>
+        </div>
+    </div>
+</div>
+
+<header class="navbar navbar-static-top navbar-inverse" role="banner">
+    <div class="container">
+        <div class="navbar-header">
+            <button class="navbar-toggle collapsed" type="button" data-toggle="collapse" data-target=".bs-navbar-collapse">
+                <span class="sr-only">Toggle navigation</span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <!-- <a href="/" class="navbar-brand">PHP学院</a>-->
+        </div>
+
+        <nav class="collapse navbar-collapse bs-navbar-collapse">
+
+            <ul class="nav navbar-nav">
+                <li><a href="https://www.phpxy.com">首页</a></li>
+                <li><a href="http://phpbook.phpxy.com" target="_blank">免费PHP教程</a></li>
+                <li><a href="http://mysql.phpxy.com" target="_blank">MySQL教程</a></li>
+                <li><a href="http://www.phpxy.com/psr" target="_blank">PSR规范</a></li>
+            </ul>
+
+            <ul class="nav navbar-nav navbar-right">
+                <!--<li><a href="">登录</a></li>
+                <li><a href="">注册</a></li>-->
+            </ul>
+        </nav>
+
+    </div>
+</header>
+
+
+<link rel="stylesheet" href="/editor/css/editormd.css" />
+<link rel="stylesheet" href="/editor/css/editormd.preview.css" />
+
+    <div class="container clearfix article-container">
+        <div class="row">
+            <div class="col-md-8 article-bg">
+                <article class="single-post">
+                    <section class="single-post-header">
+                        <header class="single-post-header__meta">
+                            <h1 class="single-post__title">优化 MySQL 中的分页</h1>
+                        </header>
+                        <div class="author">
+                            <time class="timeago" title="2016-08-22 12:42:10" datetime="2016-08-22 12:42:10"> 8月前</time></span>
+                        </div>
+                    </section>
+                    <br>
+
+                    <section class="article" id="markdown">
+
+                                            <textarea style="display:none;" name="test-editormd-markdown-doc"> 一道面试的问题，当MySQL表中有数据量很大的时候如何做分页。。。。当时只知道在数据量很大的时候可以分表，但不知道不分表时可以怎么做。。。。唉，谁让代理商就那么几条数据，一个简单的limit，offset就完全hold住了(捂脸)。。。
+
+很多应用往往只展示最新或最热门的几条记录，但为了旧记录仍然可访问，所以就需要个分页的导航栏。然而，如何通过MySQL更好的实现分页，始终是比较令人头疼的问题。虽然没有拿来就能用的解决办法，但了解数据库的底层或多或少有助于优化分页查询。
+
+我们先从一个常用但性能很差的查询来看一看。
+
+>SELECT *
+FROM city
+ORDER BY id DESC
+LIMIT 0, 15
+
+这个查询耗时0.00sec。So，这个查询有什么问题呢？实际上，这个查询语句和参数都没有问题，因为它用到了下面表的主键，而且只读取15条记录。
+
+>CREATE TABLE city (
+  id int(10) unsigned NOT NULL AUTO_INCREMENT,
+  city varchar(128) NOT NULL,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB;
+
+真正的问题在于offset(分页偏移量)很大的时候，像下面这样：
+
+>SELECT *
+FROM city
+ORDER BY id DESC
+LIMIT 100000, 15;
+
+上面的查询在有2M行记录时需要0.22sec，通过EXPLAIN查看SQL的执行计划可以发现该SQL检索了100015行，但最后只需要15行。大的分页偏移量会增加使用的数据，MySQL会将大量最终不会使用的数据加载到内存中。就算我们假设大部分网站的用户只访问前几页数据，但少量的大的分页偏移量的请求也会对整个系统造成危害。Facebook意识到了这一点，但Facebook并没有为了每秒可以处理更多的请求而去优化数据库，而是将重心放在将请求响应时间的方差变小。
+
+对于分页请求，还有一个信息也很重要，就是总共的记录数。我们可以通过下面的查询很容易的获取总的记录数。
+
+>SELECT COUNT(*)
+FROM city;
+
+然而，上面的SQL在采用InnoDB为存储引擎时需要耗费9.28sec。一个不正确的优化是采用SQL_CALC_FOUND_ROWS,SQL_CALC_FOUND_ROWS可以在能够在分页查询时事先准备好符合条件的记录数，随后只要执行一句select FOUND_ROWS(); 就能获得总记录数。但是在大多数情况下，查询语句简短并不意味着性能的提高。不幸的是，这种分页查询方式在许多主流框架中都有用到，下面看看这个语句的查询性能。
+
+>SELECT SQL_CALC_FOUND_ROWS *
+FROM city
+ORDER BY id DESC
+LIMIT 100000, 15;
+
+这个语句耗时20.02sec，是上一个的两倍。事实证明使用SQL_CALC_FOUND_ROWS做分页是很糟糕的想法。
+下面来看看到底如何优化。文章分为两部分，第一部分是如何获取记录的总数目，第二部分是获取真正的记录。
+
+高效的计算行数
+
+如果采用的引擎是MyISAM，可以直接执行COUNT(*)去获取行数即可。相似的，在堆表中也会将行数存储到表的元信息中。但如果引擎是InnoDB情况就会复杂一些，因为InnoDB不保存表的具体行数。
+我们可以将行数缓存起来，然后可以通过一个守护进程定期更新或者用户的某些操作导致缓存失效时，执行下面的语句：
+
+>SELECT COUNT(*)
+FROM city
+USE INDEX(PRIMARY);
+
+获取记录
+
+下面进入这篇文章最重要的部分，获取分页要展示的记录。上面已经说过了，大的偏移量会影响性能，所以我们要重写查询语句。为了演示，我们创建一个新的表“news”，按照时事性排序(最新发布的在最前面)，实现一个高性能的分页。为了简单，我们就假设最新发布的新闻的Id也是最大的。
+
+>CREATE TABLE news(
+   id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+   title VARCHAR(128) NOT NULL
+) ENGINE=InnoDB;
+
+一个比较高效的方式是基于用户展示的最后一个新闻Id。查询下一页的语句如下，需要传入当前页面展示的最后一个Id。
+
+>SELECT *
+FROM news WHERE id < $last_id
+ORDER BY id DESC
+LIMIT $perpage
+
+查询上一页的语句类似，只不过需要传入当前页的第一个Id，并且要逆序。
+
+>SELECT *
+FROM news WHERE id > $last_id
+ORDER BY id ASC
+LIMIT $perpage
+
+上面的查询方式适合实现简易的分页，即不显示具体的页数导航，只显示“上一页”和“下一页”，例如博客中页脚显示“上一页”，“下一页”的按钮。但如果要实现真正的页面导航还是很难的,下面看看另一种方式。
+
+>SELECT id
+FROM (
+   SELECT id, ((@cnt:= @cnt + 1) + $perpage - 1) % $perpage cnt
+   FROM news 
+   JOIN (SELECT @cnt:= 0)T
+   WHERE id < $last_id
+   ORDER BY id DESC
+   LIMIT $perpage * $buttons
+)C
+WHERE cnt = 0;
+
+通过上面的语句可以为每一个分页的按钮计算出一个offset对应的id。这种方法还有一个好处。假设，网站上正在发布一片新的文章，那么所有文章的位置都会往后移一位，所以如果用户在发布文章时换页，那么他会看见一篇文章两次。如果固定了每个按钮的offset Id，这个问题就迎刃而解了。Mark Callaghan发表过一篇类似的博客，利用了组合索引和两个位置变量，但是基本思想是一致的。
+
+如果表中的记录很少被删除、修改，还可以将记录对应的页码存储到表中，并在该列上创建合适的索引。采用这种方式，当新增一个记录的时候，需要执行下面的查询重新生成对应的页号。
+
+>SET p:= 0;
+UPDATE news SET page=CEIL((p:= p + 1) / $perpage) ORDER BY id DESC;
+
+当然，也可以新增一个专用于分页的表，可以用个后台程序来维护。
+
+>UPDATE pagination T
+JOIN (
+   SELECT id, CEIL((p:= p + 1) / $perpage) page
+   FROM news
+   ORDER BY id
+)C
+ON C.id = T.id
+SET T.page = C.page;
+
+现在想获取任意一页的元素就很简单了：
+
+>SELECT *
+FROM news A
+JOIN pagination B ON A.id=B.ID
+WHERE page=$offset;
+
+还有另外一种与上种方法比较相似的方法来做分页，这种方式比较试用于数据集相对小，并且没有可用的索引的情况下—比如处理搜索结果时。在一个普通的服务器上执行下面的查询，当有2M条记录时，要耗费2sec左右。这种方式比较简单，创建一个用来存储所有Id的临时表即可(这也是最耗费性能的地方)。
+
+>CREATE TEMPORARY TABLE _tmp (KEY SORT(random))
+SELECT id, FLOOR(RAND() * 0x8000000) random
+FROM city;
+ 
+>ALTER TABLE _tmp ADD OFFSET INT UNSIGNED PRIMARY KEY AUTO_INCREMENT, DROP INDEX SORT, ORDER BY random;
+
+接下来就可以向下面一样执行分页查询了。
+
+>SELECT *
+FROM _tmp
+WHERE OFFSET >= $offset
+ORDER BY OFFSET
+LIMIT $perpage;
+
+简单来说，对于分页的优化就是。。。避免数据量大时扫描过多的记录。
+博客比较长，所以翻译的有些粗糙。。。，之后会在好好检查一遍的。在自己做测试时，有些查询时间与作者有点不一致，不过作者这篇博客是写于2011年的，so~不要在意具体数据，领会精神吧~~
+
+                        </textarea>
+                                        </section>
+                    <div class="share">
+                        <div class="bdsharebuttonbox"><a class="bds_more" href="#" data-cmd="more"></a><a class="bds_qzone" title="分享到QQ空间" href="#" data-cmd="qzone"></a><a class="bds_tsina" title="分享到新浪微博" href="#" data-cmd="tsina"></a><a class="bds_tqq" title="分享到腾讯微博" href="#" data-cmd="tqq"></a><a class="bds_renren" title="分享到人人网" href="#" data-cmd="renren"></a><a class="bds_weixin" title="分享到微信" href="#" data-cmd="weixin"></a></div>
+                        <script>window._bd_share_config={"common":{"bdSnsKey":{},"bdText":"","bdMini":"2","bdMiniList":false,"bdPic":"","bdStyle":"1","bdSize":"24"},"share":{},"image":{"viewList":["qzone","tsina","tqq","renren","weixin"],"viewText":"分享到：","viewSize":"24"},"selectShare":{"bdContainerClass":null,"bdSelectMiniList":["qzone","tsina","tqq","renren","weixin"]}};with(document)0[(getElementsByTagName('head')[0]||body).appendChild(createElement('script')).src='http://bdimg.share.baidu.com/static/api/js/share.js?v=89860593.js?cdnversion='+~(-new Date()/36e5)];</script>
+                    </div>
+                </article>
+            </div>
+             <div class="right">
+            <div class="handbook">
+            <div class="title">
+            <h2>最新在线手册与帮助</h2>
+            <a><img src="/front/img/more.png"></a>
+            </div>
+            <div class="hot">
+                <h3>热门手册&nbsp;&nbsp;</h3>
+                <a href="http://phpbook.noalike.com/" target="_blank">7天学会PHP</a>
+                <a href="http://php7.phpxy.com" target="_blank">PHP7 中文手册</a>
+                <a href="http://www.runoob.com/css/css-tutorial.html" target="_blank">CSS2.0手册</a>
+                <a href="http://www.jb51.net/shouce/jquery1.82/" target="_blank">JQuery中文手册</a>
+                <a href="http://www.runoob.com/" target="_blank">W3C参考手册</a>
+                <a href="http://www.smarty.net/docs/zh_CN/" target="_blank">Smarty官方手册</a>
+                <a href="http://www.runoob.com/js/js-tutorial.html" target="_blank">Javascript入门</a>
+                <a href="http://down.phpxy.com/php_manual_zh.chm" target="_blank">PHP7 中文手册<span style="color:red;font-size:10px">本地下载版</span></a>
+            </div>
+            <div class="other">
+                <h3>其他手册&nbsp;&nbsp;</h3>
+                <a href="http://mysql.phpxy.com/" target="_blank">3天入门MySQL</a>
+                 <a href="http://document.thinkphp.cn/manual_3_2.html" target="_blank">ThinkPHP手册</a>
+                 <a href="http://www.nginx.cn/doc/" target="_blank">nginx中文手册</a>
+
+                <a href="http://httpd.apache.org/docs/2.4/" target="_blank">Apache2.4中文手册</a>
+                <a href="http://www.runoob.com/mysql/mysql-tutorial.html" target="_blank">Mysql5手册</a>
+                 <a href="http://www.runoob.com/redis/redis-tutorial.html" target="_blank">redis学习</a>
+                 <a href="http://www.runoob.com/mongodb/mongodb-tutorial.html" target="_blank">MongoDB学习</a>
+                 <a href="http://www.runoob.com/Memcached/Memcached-tutorial.html" target="_blank">memcached教程</a>
+                <a href="http://www.runoob.com/html/html5-intro.html" target="_blank">HTML5标签手册</a>
+                <a href="http://www.runoob.com/js/js-tutorial.html" target="_blank">Javascript手册</a>
+                <a href="http://www.runoob.com/ajax/ajax-tutorial.html" target="_blank">Ajax参考手册</a>
+                <a href="http://www.runoob.com/regexp/regexp-tutorial.html" target="_blank">正则表达式</a>
+                <a href="https://doc.open.alipay.com/" target="_blank">支付宝接口参考</a>
+                <a href="http://www.yiichina.com/doc/guide/2.0" target="_blank">Yii 2.0册</a>
+                <a href="http://ci.phpxy.com/" target="_blank">CI最新手册</a>
+                 <a href="http://laravelacademy.org/laravel-docs-5_2" target="_blank">Laravel 5.2 手册</a>
+                <a href="https://mp.weixin.qq.com/wiki" target="_blank">微信接口参考</a>
+
+                <a href="http://backlogtool.com/git-guide/cn/intro/intro1_1.html" target="_blank">连猴子都会的Git</a>
+            </div>
+            </div>
+        </div>
+
+
+            <div class="col-md-4 side-bar-t">
+                                    <div class="recommended-articles">
+                        <h3>推荐文章</h3>
+                        <div>
+                                                            <article class="row">
+                                                                                                                                                <div class="desc col-md-12">
+                                        <a class="title text-ellipsis" href="https://www.phpxy.com/article/169.html" target="_blank" title="让你的PHP7更快(GCC PGO) ">&bull;&nbsp;&nbsp;让你的PHP7更快(GCC PGO) </a>
+                                        <div class="brief text-ellipsis">
+                                            我们一直致力于提升PHP7的性能, 上个月我们注意到GCC的PGO能在Wordpress上能带来近10%的性能提升, 这个让我们很激动.
+                                        </div>
+                                    </div>
+                                </article>
+                                                            <article class="row">
+                                                                                                                                                <div class="desc col-md-12">
+                                        <a class="title text-ellipsis" href="https://www.phpxy.com/article/144.html" target="_blank" title="用超人的故事讲解 IoC（控制反转） 和 DI（依赖注入）">&bull;&nbsp;&nbsp;用超人的故事讲解 IoC（控制反转） 和 DI（依赖注入）</a>
+                                        <div class="brief text-ellipsis">
+                                            容器，字面上理解就是装东西的东西。常见的变量、对象属性等都可以算是容器。一个容器能够装什么，全部取决于你对该容器的定义。当然，有这样一种容器，它存放的不是文本、数值，而是对象
+                                        </div>
+                                    </div>
+                                </article>
+                                                            <article class="row">
+                                                                                                                                                <div class="desc col-md-12">
+                                        <a class="title text-ellipsis" href="https://www.phpxy.com/article/142.html" target="_blank" title="Guzzle 编写多线程爬虫实战">&bull;&nbsp;&nbsp;Guzzle 编写多线程爬虫实战</a>
+                                        <div class="brief text-ellipsis">
+                                            Guzzle 库是一套强大的 PHP HTTP 请求套件。
+
+本文重点演示如何使用 Guzzle 发起多线程请求。
+                                        </div>
+                                    </div>
+                                </article>
+                                                            <article class="row">
+                                                                                                                                                <div class="desc col-md-12">
+                                        <a class="title text-ellipsis" href="https://www.phpxy.com/article/141.html" target="_blank" title="拒绝重复造轮子，用composer搞自己的框架(完)">&bull;&nbsp;&nbsp;拒绝重复造轮子，用composer搞自己的框架(完)</a>
+                                        <div class="brief text-ellipsis">
+                                            经过前三篇文章 基础准备 、 构建路由 和 设计 MVC ，我们已经得到了一个结构比较完整的 MVC 架构的 PHP 微框架，但是距离一个真正能够上手使用的框架还差一样东西： 数据库封装 ，本篇就将讲述如何集成一个 ORM Composer 包 
+                                        </div>
+                                    </div>
+                                </article>
+                                                            <article class="row">
+                                                                                                                                                <div class="desc col-md-12">
+                                        <a class="title text-ellipsis" href="https://www.phpxy.com/article/72.html" target="_blank" title="PHP邮件发送那点事">&bull;&nbsp;&nbsp;PHP邮件发送那点事</a>
+                                        <div class="brief text-ellipsis">
+                                            PHP邮件发送那点事，操作系统我个人比较喜欢CentOs,原生的系统都装有，没有的话 可以自己谷歌，这个很简单 ，跳过。需要注意的是，Postfix默认只对本地IP的Client开放，因为我们是用PHP调用Postfix发送，所以没有修改。
+                                        </div>
+                                    </div>
+                                </article>
+                                                            <article class="row">
+                                                                                                                                                <div class="desc col-md-12">
+                                        <a class="title text-ellipsis" href="https://www.phpxy.com/article/33.html" target="_blank" title="微信支付开发教程（一）连载">&bull;&nbsp;&nbsp;微信支付开发教程（一）连载</a>
+                                        <div class="brief text-ellipsis">
+                                            微信在中国占有6个亿的用户，微信支付越来越多的企业和个人在使用了，今天我们来连载的讲解微信支付的使用。希望能够帮助你更快的了解微信支付，并且快速上手微信支付。
+                                        </div>
+                                    </div>
+                                </article>
+                                                            <article class="row">
+                                                                                                                                                <div class="desc col-md-12">
+                                        <a class="title text-ellipsis" href="https://www.phpxy.com/article/14.html" target="_blank" title="PHP的流程控制学习要点，流程控制就是人类思维的抽象">&bull;&nbsp;&nbsp;PHP的流程控制学习要点，流程控制就是人类思维的抽象</a>
+                                        <div class="brief text-ellipsis">
+                                            PHP的流程控制要怎么学习？流程控制为什么是人类高度抽象之后的思考方式。学习编程，其实用的最多的就是流程控制来实现不同的业务逻辑。本章会比较有趣，会讲解王思总同学通过流程控制来处理工作的方式和方法，方便你来思考问题
+                                        </div>
+                                    </div>
+                                </article>
+                                                            <article class="row">
+                                                                                                                                                <div class="desc col-md-12">
+                                        <a class="title text-ellipsis" href="https://www.phpxy.com/article/13.html" target="_blank" title="PHP连接mysql的乱码的终极解决方案">&bull;&nbsp;&nbsp;PHP连接mysql的乱码的终极解决方案</a>
+                                        <div class="brief text-ellipsis">
+                                            很多朋友连接数据库的过程当中经常有出现乱码的这种现象，到底该如何解决PHP连接mysql乱码的问题？PHP学院专门为大家总结了9步注意事项。通过这9步，就可以彻底解决PHP连接MySQL数据库后的终极解决方案。
+                                        </div>
+                                    </div>
+                                </article>
+                                                            <article class="row">
+                                                                                                                                                <div class="desc col-md-12">
+                                        <a class="title text-ellipsis" href="https://www.phpxy.com/article/8.html" target="_blank" title="延迟执行的，PHP最优解决方案">&bull;&nbsp;&nbsp;延迟执行的，PHP最优解决方案</a>
+                                        <div class="brief text-ellipsis">
+                                            我们在实际项目中总是遇到各种千奇百怪的问题。 其中有一个关于类似于滴滴打车的发单业务和抢单业务，若5分钟没有人接单。将任务派单给自己的投递小组。这可如何解决呀。
+                                        </div>
+                                    </div>
+                                </article>
+                                                            <article class="row">
+                                                                                                                                                <div class="desc col-md-12">
+                                        <a class="title text-ellipsis" href="https://www.phpxy.com/article/6.html" target="_blank" title="解决微信营销中转发、助力的瓶颈">&bull;&nbsp;&nbsp;解决微信营销中转发、助力的瓶颈</a>
+                                        <div class="brief text-ellipsis">
+                                            微信转发助力是现在微信营销中经常使用到的一种方式。邀请朋友过来点赞，其实就是为了增加这个活动的暴光率。而，我们在实际微信营销和微信开发中遇到了一些极大的性能瓶颈。
+                                        </div>
+                                    </div>
+                                </article>
+                                                            <article class="row">
+                                                                                                                                                <div class="desc col-md-12">
+                                        <a class="title text-ellipsis" href="https://www.phpxy.com/article/3.html" target="_blank" title="PHP代码规范与质量检查工具PHPCS,PHPMD的安装与配置">&bull;&nbsp;&nbsp;PHP代码规范与质量检查工具PHPCS,PHPMD的安装与配置</a>
+                                        <div class="brief text-ellipsis">
+                                            PHP代码规范与质量检查工具PHPCS,PHPMD的安装与配置
+                                        </div>
+                                    </div>
+                                </article>
+                                                            <article class="row">
+                                                                                                                                                <div class="desc col-md-12">
+                                        <a class="title text-ellipsis" href="https://www.phpxy.com/article/2.html" target="_blank" title="为什么有人学不会PHP？">&bull;&nbsp;&nbsp;为什么有人学不会PHP？</a>
+                                        <div class="brief text-ellipsis">
+                                            我听到了太多的人去抱怨说不好。从我目前见到的数据统计，我认为有不到1%的人学不好程序。而这1%的人，他们的思维模式和我们遇到的大多数人不太一样
+                                        </div>
+                                    </div>
+                                </article>
+                                                            <article class="row">
+                                                                                                                                                <div class="desc col-md-12">
+                                        <a class="title text-ellipsis" href="http://wenda.phpxy.com/q_73.html" target="_blank" title="开发了两年PHP遇到瓶颈怎么办？">&bull;&nbsp;&nbsp;开发了两年PHP遇到瓶颈怎么办？</a>
+                                        <div class="brief text-ellipsis">
+                                            开发了两年PHP遇到瓶颈怎么办？
+                                        </div>
+                                    </div>
+                                </article>
+                                                    </div>
+                    </div>
+                            </div>
+        </div>
+    </div>
+     <script src="https://apps.bdimg.com/libs/jquery/2.1.4/jquery.min.js"></script>
+     <script src="/editor/lib/marked.min.js"></script>
+        <script src="/editor/lib/prettify.min.js"></script>
+        <script src="/editor/lib/raphael.min.js"></script>
+        <script src="/editor/lib/underscore.min.js"></script>
+        <script src="/editor/lib/sequence-diagram.min.js"></script>
+        <script src="/editor/lib/flowchart.min.js"></script>
+        <script src="/editor/lib/jquery.flowchart.min.js"></script>
+
+        <script src="/editor/editormd.js"></script>
+        <script type="text/javascript">
+            $(function() {
+                var testEditormdView, testEditormdView2;
+
+                $.get("test.md", function(markdown) {
+
+                    testEditormdView = editormd.markdownToHTML("test-editormd-view", {
+                        markdown        : markdown ,//+ "\r\n" + $("#append-test").text(),
+                        //htmlDecode      : true,       // 开启 HTML 标签解析，为了安全性，默认不开启
+                        htmlDecode      : "style,script,iframe",  // you can filter tags decode
+                        //toc             : false,
+                        tocm            : true,    // Using [TOCM]
+                        //tocContainer    : "#custom-toc-container", // 自定义 ToC 容器层
+                        //gfm             : false,
+                        //tocDropdown     : true,
+                        // markdownSourceCode : true, // 是否保留 Markdown 源码，即是否删除保存源码的 Textarea 标签
+                        emoji           : true,
+                        taskList        : true,
+                        tex             : true,  // 默认不解析
+                        flowChart       : true,  // 默认不解析
+                        sequenceDiagram : true,  // 默认不解析
+                    });
+
+                    //console.log("返回一个 jQuery 实例 =>", testEditormdView);
+
+                    // 获取Markdown源码
+                    //console.log(testEditormdView.getMarkdown());
+
+                    //alert(testEditormdView.getMarkdown());
+                });
+
+                testEditormdView2 = editormd.markdownToHTML("markdown", {
+                    htmlDecode      : "style,script,iframe",  // you can filter tags decode
+                    emoji           : true,
+                    taskList        : true,
+                    tex             : true,  // 默认不解析
+                    flowChart       : true,  // 默认不解析
+                    sequenceDiagram : true,  // 默认不解析
+                });
+            });
+        </script>
+
+
+
+
+<div class="site-footer">
+    <div class="container">
+        <div class="row">
+            <div class="logo pull-left">PHP学院</div>
+            <div class="footer-address pull-left">
+                <p class="text-center">努力学习，跳槽、就业不恐慌！</p>
+                <p class="text-center">PHP7|php教程|php视频</p>
+            </div>
+            <div class="footer-menu pull-left">
+
+            </div>
+            <div class="footer-menu pull-left">
+
+            </div>
+            <div class="footer-menu pull-left">
+
+                <li><a href="">PHP初学者群：375091741</a></li>
+                <li><a href="">PHP进阶群：385027889（新手勿进）</a></li>
+                <li><a href="">微信私密群：9179779</a></li>
+
+            </div>
+            <img src="https://www.phpxy.com/front/img/qrcode.jpg" width="100" class="qrcode pull-right"/>
+        </div>
+    </div>
+</div>
+
+<script src="https://www.phpxy.com/front/javascripts/jquery.min.js"></script>
+<script src="https://www.phpxy.com/front/javascripts/bootstrap.min.js"></script>
+
+<div style="display:none">
+    <script>
+var _hmt = _hmt || [];
+(function() {
+  var hm = document.createElement("script");
+  hm.src = "//hm.baidu.com/hm.js?3b08e2449548aff8ae64a865b3c70b2e";
+  var s = document.getElementsByTagName("script")[0];
+  s.parentNode.insertBefore(hm, s);
+})();
+</script>
+
+<script>
+  (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+  (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+  m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+  })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+  ga('create', 'UA-65625705-1', 'auto');
+  ga('send', 'pageview');
+
+</script>
+</div>
+</body>
+</html>
